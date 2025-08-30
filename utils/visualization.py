@@ -80,7 +80,7 @@ class GWVisualizer:
         )
         
         # Limit frequency range for better visualization
-        fig.update_yaxis(range=[0, 500])
+        fig.update_yaxes(range=[0, 500])
         
         return fig
     
