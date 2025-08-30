@@ -289,8 +289,7 @@ class GWVisualizer:
             colorscale='Viridis',
             showscale=True,
             colorbar=dict(
-                title=self._get_colorbar_title(skymap_data['map_type']),
-                side="right"
+                title=self._get_colorbar_title(skymap_data['map_type'])
             ),
             hovertemplate='<b>Longitude</b>: %{x:.1f}°<br>' +
                          '<b>Latitude</b>: %{y:.1f}°<br>' +
