@@ -167,7 +167,7 @@ def display_data_analysis():
     data = st.session_state.data_processor.get_data()
     
     # Create tabs for different visualizations
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 Time Series", "🎵 Spectrograms", "📊 Comparison", "📋 Data Info"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📈 Time Series", "🎵 Spectrograms", "📊 Comparison", "🗺️ GWB Sky Maps", "📋 Data Info"])
     
     with tab1:
         st.subheader("Gravitational Wave Strain Data")
@@ -227,6 +227,9 @@ def display_data_analysis():
             st.info("Select multiple detectors to see comparison plots.")
     
     with tab4:
+        display_gwb_analysis()
+    
+    with tab5:
         st.subheader("Data Information")
         
         for detector in data.keys():
@@ -250,6 +253,223 @@ def display_data_analysis():
             st.subheader("Signal Processing Applied")
             for key, value in processing_info.items():
                 st.write(f"**{key}**: {value}")
+
+def display_gwb_analysis():
+    """Display GWB (Gravitational Wave Background) sky map analysis"""
+    st.subheader("🗺️ GWB Sky Map Analysis")
+    st.markdown("Visualize gravitational wave background maps with different models and projections")
+    
+    # Initialize skymap in session state if not exists
+    if 'current_skymap' not in st.session_state:
+        st.session_state.current_skymap = None
+    
+    # Controls in columns
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.subheader("🎯 Map Configuration")
+        map_type = st.selectbox(
+            "Map Type:",
+            ["snr", "upper_limit", "detection_prob"],
+            format_func=lambda x: {
+                "snr": "Signal-to-Noise Ratio", 
+                "upper_limit": "Upper Limits",
+                "detection_prob": "Detection Probability"
+            }[x]
+        )
+        
+        gwb_model = st.selectbox(
+            "GWB Model:",
+            ["isotropic", "dipole", "quadrupole", "galactic"],
+            format_func=lambda x: {
+                "isotropic": "Isotropic (uniform)",
+                "dipole": "Dipole Anisotropy", 
+                "quadrupole": "Quadrupole Anisotropy",
+                "galactic": "Galactic Plane Enhancement"
+            }[x]
+        )
+        
+        nside = st.selectbox("Map Resolution:", [32, 64, 128], index=1)
+    
+    with col2:
+        st.subheader("🗺️ Visualization")
+        projection = st.selectbox(
+            "Map Projection:",
+            ["mollweide", "lambert", "cartesian"],
+            format_func=lambda x: {
+                "mollweide": "Mollweide (All-sky)",
+                "lambert": "Lambert Azimuthal",
+                "cartesian": "Cartesian"
+            }[x]
+        )
+        
+        coord_system = st.selectbox(
+            "Coordinate System:",
+            ["equatorial", "galactic"],
+            format_func=lambda x: {
+                "equatorial": "Equatorial (RA/Dec)",
+                "galactic": "Galactic (l/b)"
+            }[x]
+        )
+    
+    with col3:
+        st.subheader("🔧 Data Manipulation")
+        manipulation = st.selectbox(
+            "Apply Processing:",
+            ["none", "smooth", "threshold", "log_scale", "normalize", "mask_poles"],
+            format_func=lambda x: {
+                "none": "No processing",
+                "smooth": "Gaussian Smoothing",
+                "threshold": "Apply Threshold",
+                "log_scale": "Logarithmic Scale", 
+                "normalize": "Normalize Data",
+                "mask_poles": "Mask Polar Regions"
+            }[x]
+        )
+        
+        # Additional parameters based on manipulation
+        manipulation_params = {}
+        if manipulation == "smooth":
+            manipulation_params['fwhm'] = st.slider("Smoothing FWHM (degrees):", 1, 10, 3) * np.pi/180
+        elif manipulation == "threshold":
+            manipulation_params['threshold'] = st.slider("Threshold Value:", 0.0, 10.0, 2.0)
+    
+    # Generate/update sky map button
+    if st.button("🔄 Generate Sky Map", type="primary"):
+        with st.spinner("Generating sky map..."):
+            skymap_data = st.session_state.data_processor.generate_gwb_skymap(
+                map_type=map_type, gwb_model=gwb_model, nside=nside
+            )
+            
+            if skymap_data and manipulation != "none":
+                skymap_data = st.session_state.data_processor.manipulate_map_data(
+                    skymap_data, manipulation, **manipulation_params
+                )
+            
+            st.session_state.current_skymap = skymap_data
+            if skymap_data:
+                st.success("Sky map generated successfully!")
+                st.rerun()
+    
+    # Display sky map if available
+    if st.session_state.current_skymap:
+        st.markdown("---")
+        
+        # Display map information
+        skymap_info = st.session_state.current_skymap
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Map Type", skymap_info['map_type'].upper())
+        with col2:
+            st.metric("GWB Model", skymap_info['gwb_model'].title())
+        with col3:
+            st.metric("Resolution (Nside)", skymap_info['nside'])
+        with col4:
+            st.metric("Pixels", f"{skymap_info['npix']:,}")
+        
+        # Plot the sky map
+        try:
+            fig = st.session_state.visualizer.plot_skymap(
+                st.session_state.current_skymap, projection, coord_system
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Interactive controls section
+            st.subheader("🎮 Interactive Analysis")
+            
+            analysis_col1, analysis_col2 = st.columns(2)
+            
+            with analysis_col1:
+                st.markdown("**Map Statistics:**")
+                map_data = st.session_state.current_skymap['map_data']
+                st.write(f"• **Mean**: {np.mean(map_data):.3e}")
+                st.write(f"• **Std Dev**: {np.std(map_data):.3e}")
+                st.write(f"• **Min**: {np.min(map_data):.3e}")  
+                st.write(f"• **Max**: {np.max(map_data):.3e}")
+            
+            with analysis_col2:
+                st.markdown("**Quick Actions:**")
+                if st.button("📊 Show Histogram"):
+                    fig_hist = go.Figure(data=go.Histogram(x=map_data, nbinsx=50))
+                    fig_hist.update_layout(
+                        title="Sky Map Value Distribution",
+                        xaxis_title="Value",
+                        yaxis_title="Frequency",
+                        template="plotly_white"
+                    )
+                    st.plotly_chart(fig_hist, use_container_width=True)
+                
+                if st.button("🔍 Find Hotspots"):
+                    threshold = np.percentile(map_data, 95)
+                    hotspots = np.where(map_data > threshold)[0]
+                    st.write(f"Found {len(hotspots)} hotspots above 95th percentile")
+                    st.write(f"Threshold value: {threshold:.3e}")
+            
+            # Model comparison
+            st.markdown("---")
+            st.subheader("🔄 Model Comparison")
+            if st.button("Compare All Models"):
+                with st.spinner("Generating comparison maps..."):
+                    models = ["isotropic", "dipole", "quadrupole", "galactic"]
+                    comparison_data = {}
+                    
+                    for model in models:
+                        model_skymap = st.session_state.data_processor.generate_gwb_skymap(
+                            map_type=map_type, gwb_model=model, nside=nside//2  # Lower res for comparison
+                        )
+                        if model_skymap:
+                            comparison_data[model] = model_skymap
+                    
+                    # Display comparison plots
+                    if comparison_data:
+                        cols = st.columns(2)
+                        for i, (model, skymap) in enumerate(comparison_data.items()):
+                            with cols[i % 2]:
+                                fig_comp = st.session_state.visualizer.plot_skymap(
+                                    skymap, "cartesian", coord_system
+                                )
+                                fig_comp.update_layout(height=300, title=f"{model.title()} Model")
+                                st.plotly_chart(fig_comp, use_container_width=True)
+                        
+                        st.success("Model comparison complete!")
+            
+        except Exception as e:
+            st.error(f"Error displaying sky map: {str(e)}")
+    else:
+        st.info("👆 Configure your sky map parameters above and click 'Generate Sky Map' to begin analysis!")
+        
+        # Educational content for GWB
+        st.markdown("---")
+        st.subheader("📚 About Gravitational Wave Background")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("""
+            **What is GWB?**
+            
+            The Gravitational Wave Background (GWB) is the superposition of 
+            gravitational waves from many unresolved sources throughout the universe:
+            
+            • **Astrophysical GWB**: From binary black holes, neutron stars
+            • **Cosmological GWB**: From the early universe, inflation
+            • **Primordial GWB**: From cosmic strings, phase transitions
+            """)
+        
+        with col2:
+            st.markdown("""
+            **Sky Map Types:**
+            
+            • **SNR Maps**: Signal-to-noise ratio across the sky
+            • **Upper Limits**: Sensitivity limits for GWB detection  
+            • **Detection Probability**: Likelihood of detection in each direction
+            
+            **Models:**
+            
+            • **Isotropic**: Uniform background
+            • **Dipole/Quadrupole**: Angular anisotropies
+            • **Galactic**: Enhanced along galactic plane
+            """)
 
 if __name__ == "__main__":
     main()

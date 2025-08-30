@@ -2,6 +2,14 @@ import numpy as np
 import streamlit as st
 from scipy import signal
 import os
+try:
+    import healpy as hp
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord
+    from ligo.skymap import postprocess
+    SKYMAP_AVAILABLE = True
+except ImportError:
+    SKYMAP_AVAILABLE = False
 
 class DataProcessor:
     def __init__(self):
@@ -150,3 +158,107 @@ class DataProcessor:
             # Matched filter SNR (simplified)
             correlation = signal.correlate(strain, template, mode='valid')
             return np.max(np.abs(correlation))
+    
+    def generate_gwb_skymap(self, map_type="snr", gwb_model="isotropic", nside=64):
+        """Generate GWB (Gravitational Wave Background) sky map"""
+        if not SKYMAP_AVAILABLE:
+            st.error("Sky mapping libraries not available. Please install healpy and ligo.skymap.")
+            return None
+        
+        try:
+            npix = hp.nside2npix(nside)
+            
+            if map_type == "snr":
+                # Generate SNR map based on GWB model
+                if gwb_model == "isotropic":
+                    # Isotropic GWB - uniform across sky
+                    skymap = np.random.normal(0, 1, npix) + 5.0
+                elif gwb_model == "dipole":
+                    # Dipole anisotropy
+                    theta, phi = hp.pix2ang(nside, range(npix))
+                    skymap = 5.0 + 2.0 * np.cos(theta) + np.random.normal(0, 0.5, npix)
+                elif gwb_model == "quadrupole":
+                    # Quadrupole anisotropy
+                    theta, phi = hp.pix2ang(nside, range(npix))
+                    skymap = 5.0 + 1.5 * (3 * np.cos(theta)**2 - 1) + np.random.normal(0, 0.5, npix)
+                elif gwb_model == "galactic":
+                    # Galactic plane enhancement
+                    theta, phi = hp.pix2ang(nside, range(npix))
+                    b = np.pi/2 - theta  # Galactic latitude
+                    skymap = 5.0 + 3.0 * np.exp(-np.abs(b)/(10*np.pi/180)) + np.random.normal(0, 0.5, npix)
+                
+            elif map_type == "upper_limit":
+                # Generate upper limit map
+                theta, phi = hp.pix2ang(nside, range(npix))
+                # Simulate varying sensitivity across sky
+                skymap = np.abs(np.random.normal(1e-15, 2e-16, npix))
+                
+            elif map_type == "detection_prob":
+                # Detection probability map
+                skymap = np.random.beta(2, 8, npix)  # Beta distribution for probabilities
+            
+            # Apply smoothing
+            skymap = hp.smoothing(skymap, fwhm=np.pi/32)
+            
+            return {
+                'map_data': skymap,
+                'nside': nside,
+                'map_type': map_type,
+                'gwb_model': gwb_model,
+                'npix': npix
+            }
+            
+        except Exception as e:
+            st.error(f"Error generating sky map: {str(e)}")
+            return None
+    
+    def get_map_coordinates(self, skymap_data, coord_system="equatorial"):
+        """Get coordinates for sky map visualization"""
+        if not SKYMAP_AVAILABLE or skymap_data is None:
+            return None
+        
+        nside = skymap_data['nside']
+        npix = skymap_data['npix']
+        
+        # Get pixel coordinates
+        theta, phi = hp.pix2ang(nside, range(npix))
+        
+        if coord_system == "equatorial":
+            # Convert to RA/Dec
+            ra = phi * 180 / np.pi
+            dec = 90 - theta * 180 / np.pi
+            return ra, dec
+        elif coord_system == "galactic":
+            # Convert to galactic coordinates
+            c = SkyCoord(ra=phi*u.radian, dec=(np.pi/2-theta)*u.radian, frame='icrs')
+            gal = c.galactic
+            return gal.l.degree, gal.b.degree
+        else:
+            return phi * 180 / np.pi, 90 - theta * 180 / np.pi
+    
+    def manipulate_map_data(self, skymap_data, operation, **kwargs):
+        """Perform on-the-fly data manipulations"""
+        if skymap_data is None:
+            return None
+        
+        map_data = skymap_data['map_data'].copy()
+        
+        if operation == "smooth":
+            fwhm = kwargs.get('fwhm', np.pi/32)
+            map_data = hp.smoothing(map_data, fwhm=fwhm)
+        elif operation == "threshold":
+            threshold = kwargs.get('threshold', 0)
+            map_data = np.where(map_data > threshold, map_data, 0)
+        elif operation == "log_scale":
+            map_data = np.log10(np.abs(map_data) + 1e-20)
+        elif operation == "normalize":
+            map_data = (map_data - np.min(map_data)) / (np.max(map_data) - np.min(map_data))
+        elif operation == "mask_poles":
+            nside = skymap_data['nside']
+            theta, phi = hp.pix2ang(nside, range(len(map_data)))
+            mask = (theta > np.pi/6) & (theta < 5*np.pi/6)  # Exclude poles
+            map_data = np.where(mask, map_data, hp.UNSEEN)
+        
+        result = skymap_data.copy()
+        result['map_data'] = map_data
+        return result

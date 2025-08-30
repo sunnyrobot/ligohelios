@@ -5,6 +5,13 @@ from plotly.subplots import make_subplots
 import matplotlib.pyplot as plt
 from scipy import signal
 import streamlit as st
+try:
+    import healpy as hp
+    import matplotlib.pyplot as plt
+    from matplotlib.projections import get_projection_class
+    SKYMAP_AVAILABLE = True
+except ImportError:
+    SKYMAP_AVAILABLE = False
 
 class GWVisualizer:
     def __init__(self):
@@ -240,3 +247,188 @@ class GWVisualizer:
         fig.update_yaxes(title_text="Whitened Strain", row=2, col=1)
         
         return fig
+    
+    def plot_skymap(self, skymap_data, projection="mollweide", coord_system="equatorial"):
+        """Create sky map visualization with different projections"""
+        if not SKYMAP_AVAILABLE or skymap_data is None:
+            st.error("Sky mapping functionality not available")
+            return go.Figure()
+        
+        try:
+            map_data = skymap_data['map_data']
+            nside = skymap_data['nside']
+            
+            if projection == "mollweide":
+                return self._plot_mollweide_skymap(skymap_data, coord_system)
+            elif projection == "lambert":
+                return self._plot_lambert_skymap(skymap_data, coord_system)
+            elif projection == "cartesian":
+                return self._plot_cartesian_skymap(skymap_data, coord_system)
+            else:
+                return self._plot_mollweide_skymap(skymap_data, coord_system)
+                
+        except Exception as e:
+            st.error(f"Error plotting sky map: {str(e)}")
+            return go.Figure()
+    
+    def _plot_mollweide_skymap(self, skymap_data, coord_system="equatorial"):
+        """Create Mollweide projection sky map"""
+        map_data = skymap_data['map_data']
+        nside = skymap_data['nside']
+        
+        # Convert to grid for plotting
+        lon_grid, lat_grid, map_grid = self._skymap_to_grid(skymap_data, coord_system)
+        
+        fig = go.Figure()
+        
+        # Create the sky map using a heatmap with custom projection-like appearance
+        fig.add_trace(go.Heatmap(
+            z=map_grid,
+            x=lon_grid[0],
+            y=lat_grid[:, 0],
+            colorscale='Viridis',
+            showscale=True,
+            colorbar=dict(
+                title=self._get_colorbar_title(skymap_data['map_type']),
+                titleside="right"
+            ),
+            hovertemplate='<b>Longitude</b>: %{x:.1f}°<br>' +
+                         '<b>Latitude</b>: %{y:.1f}°<br>' +
+                         '<b>Value</b>: %{z:.2e}<br>' +
+                         '<extra></extra>'
+        ))
+        
+        coord_label = "RA/Dec" if coord_system == "equatorial" else "Galactic l/b"
+        
+        fig.update_layout(
+            title=f'{skymap_data["map_type"].upper()} Sky Map ({skymap_data["gwb_model"]} model) - Mollweide Projection',
+            xaxis_title=f'Longitude ({coord_label}) [degrees]',
+            yaxis_title=f'Latitude ({coord_label}) [degrees]',
+            width=800,
+            height=400,
+            template='plotly_white'
+        )
+        
+        return fig
+    
+    def _plot_lambert_skymap(self, skymap_data, coord_system="equatorial"):
+        """Create Lambert azimuthal equal-area projection sky map"""
+        map_data = skymap_data['map_data']
+        nside = skymap_data['nside']
+        
+        # Convert to Lambert projection coordinates
+        lon_grid, lat_grid, map_grid = self._skymap_to_grid(skymap_data, coord_system, projection="lambert")
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Heatmap(
+            z=map_grid,
+            x=lon_grid[0],
+            y=lat_grid[:, 0],
+            colorscale='Plasma',
+            showscale=True,
+            colorbar=dict(
+                title=self._get_colorbar_title(skymap_data['map_type']),
+                titleside="right"
+            )
+        ))
+        
+        coord_label = "RA/Dec" if coord_system == "equatorial" else "Galactic l/b"
+        
+        fig.update_layout(
+            title=f'{skymap_data["map_type"].upper()} Sky Map - Lambert Projection',
+            xaxis_title=f'X ({coord_label})',
+            yaxis_title=f'Y ({coord_label})',
+            width=600,
+            height=600,
+            template='plotly_white'
+        )
+        
+        return fig
+    
+    def _plot_cartesian_skymap(self, skymap_data, coord_system="equatorial"):
+        """Create Cartesian projection sky map"""
+        lon_grid, lat_grid, map_grid = self._skymap_to_grid(skymap_data, coord_system)
+        
+        fig = go.Figure()
+        
+        fig.add_trace(go.Heatmap(
+            z=map_grid,
+            x=lon_grid[0],
+            y=lat_grid[:, 0],
+            colorscale='Cividis',
+            showscale=True,
+            colorbar=dict(
+                title=self._get_colorbar_title(skymap_data['map_type']),
+                titleside="right"
+            )
+        ))
+        
+        coord_label = "RA/Dec" if coord_system == "equatorial" else "Galactic l/b"
+        
+        fig.update_layout(
+            title=f'{skymap_data["map_type"].upper()} Sky Map - Cartesian Projection',
+            xaxis_title=f'Longitude ({coord_label}) [degrees]',
+            yaxis_title=f'Latitude ({coord_label}) [degrees]',
+            width=800,
+            height=400,
+            template='plotly_white'
+        )
+        
+        return fig
+    
+    def _skymap_to_grid(self, skymap_data, coord_system="equatorial", projection="mollweide", resolution=100):
+        """Convert HEALPix sky map to regular grid for plotting"""
+        map_data = skymap_data['map_data']
+        nside = skymap_data['nside']
+        
+        if coord_system == "equatorial":
+            lon_range = (0, 360)
+            lat_range = (-90, 90)
+        else:  # galactic
+            lon_range = (0, 360)
+            lat_range = (-90, 90)
+        
+        # Create coordinate grids
+        lon = np.linspace(lon_range[0], lon_range[1], resolution)
+        lat = np.linspace(lat_range[0], lat_range[1], resolution//2)
+        lon_grid, lat_grid = np.meshgrid(lon, lat)
+        
+        # Convert to HEALPix angles
+        if coord_system == "equatorial":
+            theta = (90 - lat_grid) * np.pi / 180
+            phi = lon_grid * np.pi / 180
+        else:
+            theta = (90 - lat_grid) * np.pi / 180
+            phi = lon_grid * np.pi / 180
+        
+        # Interpolate HEALPix data to grid
+        try:
+            map_grid = hp.get_interp_val(map_data, theta.flatten(), phi.flatten())
+            map_grid = map_grid.reshape(theta.shape)
+        except:
+            # Fallback to nearest neighbor
+            pix = hp.ang2pix(nside, theta.flatten(), phi.flatten())
+            map_grid = map_data[pix].reshape(theta.shape)
+        
+        return lon_grid, lat_grid, map_grid
+    
+    def _get_colorbar_title(self, map_type):
+        """Get appropriate colorbar title for map type"""
+        if map_type == "snr":
+            return "SNR"
+        elif map_type == "upper_limit":
+            return "Upper Limit [strain]"
+        elif map_type == "detection_prob":
+            return "Detection Probability"
+        else:
+            return "Value"
+    
+    def plot_interactive_skymap_controls(self, skymap_data):
+        """Create interactive controls for sky map manipulation"""
+        if not SKYMAP_AVAILABLE or skymap_data is None:
+            return go.Figure()
+        
+        # This will be used with Streamlit widgets for interactivity
+        # The actual interactive controls are handled in the main app
+        return self.plot_skymap(skymap_data)
