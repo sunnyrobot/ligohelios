@@ -327,8 +327,7 @@ class GWVisualizer:
             colorscale='Plasma',
             showscale=True,
             colorbar=dict(
-                title=self._get_colorbar_title(skymap_data['map_type']),
-                side="right"
+                title=self._get_colorbar_title(skymap_data['map_type'])
             )
         ))
         
@@ -358,8 +357,7 @@ class GWVisualizer:
             colorscale='Cividis',
             showscale=True,
             colorbar=dict(
-                title=self._get_colorbar_title(skymap_data['map_type']),
-                side="right"
+                title=self._get_colorbar_title(skymap_data['map_type'])
             )
         ))
         
