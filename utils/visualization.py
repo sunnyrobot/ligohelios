@@ -290,7 +290,7 @@ class GWVisualizer:
             showscale=True,
             colorbar=dict(
                 title=self._get_colorbar_title(skymap_data['map_type']),
-                titleside="right"
+                side="right"
             ),
             hovertemplate='<b>Longitude</b>: %{x:.1f}°<br>' +
                          '<b>Latitude</b>: %{y:.1f}°<br>' +
@@ -329,7 +329,7 @@ class GWVisualizer:
             showscale=True,
             colorbar=dict(
                 title=self._get_colorbar_title(skymap_data['map_type']),
-                titleside="right"
+                side="right"
             )
         ))
         
@@ -360,7 +360,7 @@ class GWVisualizer:
             showscale=True,
             colorbar=dict(
                 title=self._get_colorbar_title(skymap_data['map_type']),
-                titleside="right"
+                side="right"
             )
         ))
         
